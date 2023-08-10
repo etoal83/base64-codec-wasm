@@ -53,7 +53,7 @@
       ))
     drop
 
-    ;; 1つ目のコマンドライン引数のデータ実体が格納されているアドレスを load = (2) -> スタックへ積む
+    ;; 1つ目のコマンドライン引数のデータ実体が格納されているアドレスを load = (3) -> スタックへ積む
     (i32.load (i32.add (local.get $argv_ptr) (i32.const 4)))
   )
 
@@ -85,16 +85,18 @@
     (local.set $n (i32.const 0))
 
     (loop $next_src_triplet (block $break
-      (if (i32.lt_u (local.get $rem) (i32.const 3))
-        (then
-          (br_if $break (i32.eqz (local.get $rem))))
-        (else nop)
-      )
+      (br_if $break (i32.eqz (local.get $rem)))
 
       ;; 約 4バイト分の入力文字を $plain_quadbyte へ格納（使うのは入力 3 文字分のみ、残り1文字は次の load で扱う）
       (local.set $plain_quadbyte (i32.load (i32.add (local.get $src_ptr) (local.get $n))))
-      ;; (i32.store8 (i32.const 1024) (local.get $plain_quadbyte))
-      ;; (return (i32.const 4))
+      ;; 残りが 4 文字未満の場合、i32.load で読み取ったバイトは下位ビットに寄せられてしまうので上位ビットにシフトしておく
+      (if (i32.le_u (local.get $rem) (i32.const 3))
+        (then
+          (local.set $plain_quadbyte
+            (i32.shl
+              (local.get $plain_quadbyte)
+              (i32.mul (i32.sub (i32.const 4) (local.get $rem)) (i32.const 8)))))
+        (else nop))
 
       ;; 1 文字目: bit range [26:31]
       (local.set $frac (i32.const 0)) ;; $frac -> 0
