@@ -88,15 +88,15 @@
       (br_if $break (i32.eqz (local.get $rem)))
 
       ;; 約 4バイト分の入力文字を $plain_quadbyte へ格納（使うのは入力 3 文字分のみ、残り1文字は次の load で扱う）
-      (local.set $plain_quadbyte (i32.load (i32.add (local.get $src_ptr) (local.get $n))))
+      (local.set $plain_quadbyte (call $reorder_i32_byte (i32.load (i32.add (local.get $src_ptr) (local.get $n)))))
       ;; 残りが 4 文字未満の場合、i32.load で読み取ったバイトは下位ビットに寄せられてしまうので上位ビットにシフトしておく
-      (if (i32.le_u (local.get $rem) (i32.const 3))
-        (then
-          (local.set $plain_quadbyte
-            (i32.shl
-              (local.get $plain_quadbyte)
-              (i32.mul (i32.sub (i32.const 4) (local.get $rem)) (i32.const 8)))))
-        (else nop))
+      ;; (if (i32.le_u (local.get $rem) (i32.const 3))
+      ;;   (then
+      ;;     (local.set $plain_quadbyte
+      ;;       (i32.shl
+      ;;         (local.get $plain_quadbyte)
+      ;;         (i32.mul (i32.sub (i32.const 4) (local.get $rem)) (i32.const 8)))))
+      ;;   (else nop))
 
       ;; 1 文字目: bit range [26:31]
       (local.set $frac (i32.const 0)) ;; $frac -> 0
@@ -128,13 +128,26 @@
       (call $store_encoded_kfrac (local.get $plain_quadbyte) (local.get $k) (local.get $frac) (i32.const 0x3f00))
 
       ;; インクリメント／デクリメント
-      (local.set $n (i32.add (local.get $k) (i32.const 3)))
+      (local.set $n (i32.add (local.get $n) (i32.const 3)))
       (local.set $k (i32.add (local.get $k) (i32.const 1)))
       (local.set $rem (i32.sub (local.get $rem) (i32.const 3)))
       (br $next_src_triplet)
     ))
 
     (i32.add (i32.mul (local.get $k) (i32.const 4)) (local.get $frac))
+  )
+
+  (func $reorder_i32_byte (param $in i32) (result i32)
+    (i32.or
+      (i32.or
+        (i32.shr_u (i32.and (local.get $in) (i32.const 0xff000000)) (i32.const 24))
+        (i32.shr_u (i32.and (local.get $in) (i32.const 0xff0000)) (i32.const 8))
+      )
+      (i32.or
+        (i32.shl (i32.and (local.get $in) (i32.const 0xff00)) (i32.const 8))
+        (i32.shl (i32.and (local.get $in) (i32.const 0xff)) (i32.const 24))
+      )
+    )
   )
 
   (func $store_encoded_kfrac (param $quadbyte i32) (param $k i32) (param $frac i32) (param $bit_mask i32)
