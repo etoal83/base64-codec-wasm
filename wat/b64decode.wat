@@ -18,31 +18,10 @@
 
   (data (i32.const 8) "usage: b64decode BASE64_STRING\00")
   (data (i32.const 40) "\40\40\40\3E\40\40\40\3F\34\35\36\37\38\39\3A\3B\3C\3D\40\40\40\40\40\40\40\00\01\02\03\04\05\06\07\08\09\0A\0B\0C\0D\0E\0F\10\11\12\13\14\15\16\17\18\19\40\40\40\40\40\40\1A\1B\1C\1D\1E\1F\20\21\22\23\24\25\26\27\28\29\2A\2B\2C\2D\2E\2F\30\31\32\33\40")
-  ;;   (i32 0x3e404040)
-  ;;   (i32 0x3f404040)
-  ;;   (i32 0x37363534)
-  ;;   (i32 0x3b3a3938)
-  ;;   (i32 0x40403d3c)
-  ;;   (i32 0x40404040)
-  ;;   (i32 0x2010040)
-  ;;   (i32 0x6050403)
-  ;;   (i32 0xa090807)
-  ;;   (i32 0xe0d0c0b)
-  ;;   (i32 0x1211100f)
-  ;;   (i32 0x16151413)
-  ;;   (i32 0x40191817)
-  ;;   (i32 0x40404040)
-  ;;   (i32 0x1c1b1a40)
-  ;;   (i32 0x201f1e1d)
-  ;;   (i32 0x24232221)
-  ;;   (i32 0x28272625)
-  ;;   (i32 0x2c2b2a29)
-  ;;   (i32 0x302f2e2d)
-  ;;   (i32 0x40333231)
-  ;; )
   (data (i32.const 1024) "                                                                                                                                ")
 
   (func $has_args (result i32)
+    ;; コマンドライン引数の数 argc とデータ長 argv_buf_size をメモリに格納し、引数が与えられたかどうかを返す
     ;; result: コマンドライン引数ありなら 1、なければ 0
 
     (call $args_sizes_get
@@ -59,15 +38,16 @@
     ;; $ n_args: コマンドライン引数の数 (given)、$has_args で格納した argc を指定する
     ;; $ argv_ptr: コマンドライン引数のアドレス配列を格納するアドレス (voluntary)
 
+    ;; e.g. `wasmer b64decode.wasm foo bar ... baz` というコマンドで呼び出された時
     ;; | argv[0] | argv[1] | ... | argv[n] | argv_buf
     ;; | 4 bytes | 4 bytes | ... | 4 bytes | string
-    ;; |   u32   |   u32   | ... |   u32   | "b64encode.wasm\0foo\0bar\0...\0baz"
+    ;; |   u32   |   u32   | ... |   u32   | "b64decode.wasm\0foo\0bar\0...\0baz"
     ;; ^                                   ^                  ^
-    ;; (1)                                 (2)                (3)
+    ;;(1)                                 (2)                (3)
     ;;
-    ;; (1) $args_get 第1引数 ← このアドレスをどこにしたいか argv_ptr で渡す
+    ;; (1) $args_get 第1引数 ← このアドレスをどこにしたいか、$get_first_arg 呼び出し時に argv_ptr で渡す
     ;; (2) $args_get 第2引数 ← argv と衝突しないよう argv + (n_args * 4) に置くようにする
-    ;; (3) この関数が返すアドレス (i32)
+    ;; (3) この関数が返すアドレス (u32)
     (call $args_get
       (local.get $argv_ptr) ;; (1) → ここへコマンドライン引数のアドレス配列を格納
       (i32.add
@@ -81,6 +61,7 @@
   )
 
   (func $str_len (param $str_ptr i32) (result i32)
+    ;; 与えられた文字列の長さ（バイト長）を返す
     (local $n i32)
     (local.set $n (i32.const 0))
 
@@ -97,6 +78,7 @@
   )
 
   (func $set_decoded_bytes (param $src_ptr i32) (param $src_len i32) (result i32)
+    ;; base64 文字列をデコードし、デコード後のバイト列をメモリに格納する
     (local $n i32)
     (local $k i32)
     (local $decoded_quadbyte i32)
@@ -158,6 +140,7 @@
   )
 
   (func $net_src_len (param $src_ptr i32) (param $src_len i32) (result i32)
+    ;; base64 文字列の末尾の `=` パディングを除いた長さ（バイト長）を返す
     (local $net_len i32)
     (local.set $net_len (local.get $src_len))
     (loop $next
@@ -175,6 +158,9 @@
   )
 
   (func $reorder_i32_byte (param $in i32) (result i32)
+    ;; 与えられた 4 バイトの入力を、バイト順を逆にして返す
+    ;; （※ WebAssembly のバイトオーダーはリトルエンディアンなため）
+    ;; e.g. "\0A\0B\0C\0D" --(i32.load)--> 0x0D0C0B0A --($reorder_i32_byte)--> 0x0A0B0C0D
     (i32.or
       (i32.or
         (i32.shr_u (i32.and (local.get $in) (i32.const 0xff000000)) (i32.const 24))

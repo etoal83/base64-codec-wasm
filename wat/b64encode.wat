@@ -11,7 +11,7 @@
 
   ;; MEMORY LAYOUT
   ;; [0:3]  argc: size (u32) コマンドライン引数の数
-  ;; [4:7]  argv_buf_size: size (32) コマンドライン引数のデータ長
+  ;; [4:7]  argv_buf_size: size (u32) コマンドライン引数のデータ長
   ;; [8:72] base64_chars: base64 エンコード用の文字列
   ;; [76:1023] argv, argv_buf: コマンドライン引数のアドレス配列とデータ実体
   ;; [1024:] encoded_str_buf: エンコード後の文字列を格納するバッファ
@@ -20,6 +20,7 @@
   (data (i32.const 1024) "                                                                                                                                ")
 
   (func $has_args (result i32)
+    ;; コマンドライン引数の数 argc とデータ長 argv_buf_size をメモリに格納し、引数が与えられたかどうかを返す
     ;; result: コマンドライン引数ありなら 1、なければ 0
 
     (call $args_sizes_get
@@ -36,15 +37,16 @@
     ;; $ n_args: コマンドライン引数の数 (given)、$has_args で格納した argc を指定する
     ;; $ argv_ptr: コマンドライン引数のアドレス配列を格納するアドレス (voluntary)
 
+    ;; e.g. `wasmer b64encode.wasm foo bar ... baz` というコマンドで呼び出された時
     ;; | argv[0] | argv[1] | ... | argv[n] | argv_buf
     ;; | 4 bytes | 4 bytes | ... | 4 bytes | string
     ;; |   u32   |   u32   | ... |   u32   | "b64encode.wasm\0foo\0bar\0...\0baz"
     ;; ^                                   ^                  ^
-    ;; (1)                                 (2)                (3)
+    ;;(1)                                 (2)                (3)
     ;;
-    ;; (1) $args_get 第1引数 ← このアドレスをどこにしたいか argv_ptr で渡す
+    ;; (1) $args_get 第1引数 ← このアドレスをどこにしたいか、$get_first_arg 呼び出し時に argv_ptr で渡す
     ;; (2) $args_get 第2引数 ← argv と衝突しないよう argv + (n_args * 4) に置くようにする
-    ;; (3) この関数が返すアドレス (i32)
+    ;; (3) この関数が返すアドレス (u32)
     (call $args_get
       (local.get $argv_ptr) ;; (1) → ここへコマンドライン引数のアドレス配列を格納
       (i32.add
@@ -58,6 +60,7 @@
   )
 
   (func $str_len (param $str_ptr i32) (result i32)
+    ;; 与えられた文字列の長さ（バイト長）を返す
     (local $n i32)
     (local.set $n (i32.const 0))
 
@@ -74,7 +77,10 @@
   )
 
   (func $set_encoded_string (param $src_ptr i32) (param $src_len i32) (result i32)
+    ;; 与えられた文字列を base64 エンコードしてメモリに格納し、エンコード後の文字列の長さ（バイト長）を返す
+
     (local $n i32)    ;; $n: 3 文字単位で入力を処理するためのカウンタ
+    ;; base64 エンコード済み出力文字数 = 4k + frac
     (local $k i32)    ;; $k: 4 文字単位で出力を処理するためのカウンタ
     (local $frac i32) ;; $frac: 4 文字単位の出力の何文字目かを示すカウンタ
     (local $rem i32)  ;; $rem: 残りの未処理の入力文字数
@@ -89,14 +95,6 @@
 
       ;; 約 4バイト分の入力文字を $plain_quadbyte へ格納（使うのは入力 3 文字分のみ、残り1文字は次の load で扱う）
       (local.set $plain_quadbyte (call $reorder_i32_byte (i32.load (i32.add (local.get $src_ptr) (local.get $n)))))
-      ;; 残りが 4 文字未満の場合、i32.load で読み取ったバイトは下位ビットに寄せられてしまうので上位ビットにシフトしておく
-      ;; (if (i32.le_u (local.get $rem) (i32.const 3))
-      ;;   (then
-      ;;     (local.set $plain_quadbyte
-      ;;       (i32.shl
-      ;;         (local.get $plain_quadbyte)
-      ;;         (i32.mul (i32.sub (i32.const 4) (local.get $rem)) (i32.const 8)))))
-      ;;   (else nop))
 
       ;; 1 文字目: bit range [26:31]
       (local.set $frac (i32.const 0)) ;; $frac -> 0
@@ -138,6 +136,9 @@
   )
 
   (func $reorder_i32_byte (param $in i32) (result i32)
+    ;; 与えられた 4 バイトの入力を、バイト順を逆にして返す
+    ;; （※ WebAssembly のバイトオーダーはリトルエンディアンなため）
+    ;; e.g. "\0A\0B\0C\0D" --(i32.load)--> 0x0D0C0B0A --($reorder_i32_byte)--> 0x0A0B0C0D
     (i32.or
       (i32.or
         (i32.shr_u (i32.and (local.get $in) (i32.const 0xff000000)) (i32.const 24))
@@ -151,6 +152,7 @@
   )
 
   (func $store_encoded_kfrac (param $quadbyte i32) (param $k i32) (param $frac i32) (param $bit_mask i32)
+    ;; 4k + frac 文字目の base64 エンコード文字を格納する
     (i32.store8
       ;; エンコードされた文字の格納先アドレス
       (i32.add
@@ -166,6 +168,7 @@
   )
 
   (func $pad_equal_kfrac (param $k i32) (param $frac i32)
+    ;; 4k + frac 文字目の base64 エンコード文字に `=` を格納する
     (i32.store8
       ;; エンコードされた文字の格納先アドレス
       (i32.add
