@@ -1,0 +1,29 @@
+[package]
+name = 'etoal/base64'
+version = '0.1.2'
+description = 'A command line tool of encoding/decoding string to/from Base64 string'
+license = 'MIT'
+readme = 'README.md'
+repository = 'https://github.com/etoal83/base64-codec-wasm'
+
+# See more keys and definitions at https://docs.wasmer.io/registry/manifest
+
+[[module]]
+name = 'b64encode'
+source = 'b64encode.wasm'
+abi = 'wasi'
+interfaces = { wasi = '0.1.0-unstable' }
+
+[[module]]
+name = 'b64decode'
+source = 'b64decode.wasm'
+abi = 'wasi'
+interfaces = { wasi = '0.1.0-unstable' }
+
+[[command]]
+name = 'encode'
+module = 'b64encode'
+
+[[command]]
+name = 'decode'
+module = 'b64decode'
